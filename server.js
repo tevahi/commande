@@ -52,10 +52,15 @@ function initDatabase() {
         db.run(`CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_name TEXT NOT NULL,
-            customer_email TEXT,
             total_amount REAL NOT NULL,
+            is_paid INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
+
+        // Ajouter la colonne is_paid si elle n'existe pas (migration)
+        db.run(`ALTER TABLE orders ADD COLUMN is_paid INTEGER DEFAULT 0`, (err) => {
+            // Ignorer l'erreur si la colonne existe déjà
+        });
 
         // Table des éléments de commande
         db.run(`CREATE TABLE IF NOT EXISTS order_items (
@@ -68,9 +73,30 @@ function initDatabase() {
             FOREIGN KEY (product_id) REFERENCES products (id)
         )`);
 
+        // Table des paramètres système
+        db.run(`CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Insérer le paramètre par défaut pour l'activation des commandes
+        db.get("SELECT value FROM system_settings WHERE key = 'orders_enabled'", (err, row) => {
+            if (!row) {
+                db.run("INSERT INTO system_settings (key, value) VALUES ('orders_enabled', 'true')");
+            }
+        });
+
+        // Insérer le paramètre par défaut pour le lien du menu
+        db.get("SELECT value FROM system_settings WHERE key = 'menu_link'", (err, row) => {
+            if (!row) {
+                db.run("INSERT INTO system_settings (key, value) VALUES ('menu_link', 'https://example.com/menu')");
+            }
+        });
+
         // Insérer quelques produits par défaut
         db.get("SELECT COUNT(*) as count FROM products", (err, row) => {
-            if (row.count === 0) {
+            if (row && row.count === 0) {
                 const defaultProducts = [
                     ['Chicken katsu bowl', 950],
                     ['Chiken katsu noodles bowl', 950],
@@ -145,6 +171,58 @@ app.post('/api/logout', (req, res) => {
     res.json({ success: true });
 });
 
+app.get('/api/system-settings', (req, res) => {
+    db.all("SELECT key, value FROM system_settings WHERE key IN ('orders_enabled', 'menu_link')", (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+        } else {
+            const settings = {};
+            rows.forEach(row => {
+                if (row.key === 'orders_enabled') {
+                    settings.orders_enabled = row.value === 'true';
+                } else if (row.key === 'menu_link') {
+                    settings.menu_link = row.value;
+                }
+            });
+            // Valeurs par défaut si non trouvées
+            if (settings.orders_enabled === undefined) settings.orders_enabled = true;
+            if (!settings.menu_link) settings.menu_link = 'https://example.com/menu';
+            
+            res.json(settings);
+        }
+    });
+});
+
+app.put('/api/system-settings/orders-enabled', requireAuth, (req, res) => {
+    const { enabled } = req.body;
+    
+    db.run("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('orders_enabled', ?, datetime('now'))", 
+           [enabled ? 'true' : 'false'], function(err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+        } else {
+            res.json({ success: true, orders_enabled: enabled });
+        }
+    });
+});
+
+app.put('/api/system-settings/menu-link', requireAuth, (req, res) => {
+    const { menu_link } = req.body;
+    
+    if (!menu_link) {
+        return res.status(400).json({ error: 'Lien du menu requis' });
+    }
+    
+    db.run("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('menu_link', ?, datetime('now'))", 
+           [menu_link], function(err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+        } else {
+            res.json({ success: true, menu_link });
+        }
+    });
+});
+
 app.get('/api/products', (req, res) => {
     db.all("SELECT * FROM products ORDER BY name", (err, rows) => {
         if (err) {
@@ -184,58 +262,70 @@ app.delete('/api/products/:id', requireAuth, (req, res) => {
 });
 
 app.post('/api/orders', (req, res) => {
-    const { customerName, customerEmail, items } = req.body;
-    
-    if (!customerName || !items || items.length === 0) {
-        return res.status(400).json({ error: 'Nom du client et articles requis' });
-    }
-    
-    // Calculer le montant total
-    let totalAmount = 0;
-    const productIds = items.map(item => item.productId);
-    
-    db.all("SELECT id, price FROM products WHERE id IN (" + productIds.map(() => '?').join(',') + ")", productIds, (err, products) => {
+    // Vérifier d'abord si les commandes sont activées
+    db.get("SELECT value FROM system_settings WHERE key = 'orders_enabled'", (err, row) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
         
-        // Créer un map des prix
-        const priceMap = {};
-        products.forEach(product => {
-            priceMap[product.id] = product.price;
-        });
+        const ordersEnabled = row ? row.value === 'true' : true;
+        if (!ordersEnabled) {
+            return res.status(403).json({ error: 'Les commandes sont actuellement désactivées' });
+        }
         
-        // Calculer le total
-        items.forEach(item => {
-            if (priceMap[item.productId]) {
-                totalAmount += priceMap[item.productId] * item.quantity;
-            }
-        });
+        const { customerName, items } = req.body;
         
-        // Insérer la commande
-        db.run("INSERT INTO orders (customer_name, customer_email, total_amount) VALUES (?, ?, ?)", 
-               [customerName, customerEmail, totalAmount], function(err) {
+        if (!customerName || !items || items.length === 0) {
+            return res.status(400).json({ error: 'Nom du client et articles requis' });
+        }
+        
+        // Calculer le montant total
+        let totalAmount = 0;
+        const productIds = items.map(item => item.productId);
+        
+        db.all("SELECT id, price FROM products WHERE id IN (" + productIds.map(() => '?').join(',') + ")", productIds, (err, products) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
             
-            const orderId = this.lastID;
+            // Créer un map des prix
+            const priceMap = {};
+            products.forEach(product => {
+                priceMap[product.id] = product.price;
+            });
             
-            // Insérer les articles de la commande
-            const stmt = db.prepare("INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
-            
+            // Calculer le total
             items.forEach(item => {
                 if (priceMap[item.productId]) {
-                    stmt.run([orderId, item.productId, item.quantity, priceMap[item.productId]]);
+                    totalAmount += priceMap[item.productId] * item.quantity;
                 }
             });
             
-            stmt.finalize((err) => {
+            // Insérer la commande
+            db.run("INSERT INTO orders (customer_name, total_amount, is_paid) VALUES (?, ?, ?)", 
+                   [customerName, totalAmount, 0], function(err) {
                 if (err) {
-                    res.status(500).json({ error: err.message });
-                } else {
-                    res.json({ success: true, orderId, totalAmount });
+                    return res.status(500).json({ error: err.message });
                 }
+                
+                const orderId = this.lastID;
+                
+                // Insérer les articles de la commande
+                const stmt = db.prepare("INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
+                
+                items.forEach(item => {
+                    if (priceMap[item.productId]) {
+                        stmt.run([orderId, item.productId, item.quantity, priceMap[item.productId]]);
+                    }
+                });
+                
+                stmt.finalize((err) => {
+                    if (err) {
+                        res.status(500).json({ error: err.message });
+                    } else {
+                        res.json({ success: true, orderId, totalAmount });
+                    }
+                });
             });
         });
     });
@@ -246,8 +336,8 @@ app.get('/api/orders', requireAuth, (req, res) => {
         SELECT 
             o.id,
             o.customer_name,
-            o.customer_email,
             o.total_amount,
+            o.is_paid,
             o.created_at,
             GROUP_CONCAT(p.name || ' (x' || oi.quantity || ')') as items
         FROM orders o
@@ -262,6 +352,19 @@ app.get('/api/orders', requireAuth, (req, res) => {
             res.status(500).json({ error: err.message });
         } else {
             res.json(rows);
+        }
+    });
+});
+
+app.put('/api/orders/:id/payment', requireAuth, (req, res) => {
+    const orderId = req.params.id;
+    const { is_paid } = req.body;
+    
+    db.run("UPDATE orders SET is_paid = ? WHERE id = ?", [is_paid ? 1 : 0, orderId], function(err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+        } else {
+            res.json({ success: true, is_paid: is_paid });
         }
     });
 });
@@ -289,7 +392,37 @@ app.get('/api/product-stats', requireAuth, (req, res) => {
     });
 });
 
-// Gestion des erreurs et arrêt propre
+app.delete('/api/orders/reset', requireAuth, (req, res) => {
+    // Supprimer toutes les commandes et leurs articles
+    db.serialize(() => {
+        db.run("DELETE FROM order_items", (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+        });
+        
+        db.run("DELETE FROM orders", (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            // Réinitialiser l'auto-increment
+            db.run("DELETE FROM sqlite_sequence WHERE name='orders'", (err) => {
+                if (err) {
+                    console.log('Note: sqlite_sequence reset failed (normal if no orders existed)');
+                }
+            });
+            
+            db.run("DELETE FROM sqlite_sequence WHERE name='order_items'", (err) => {
+                if (err) {
+                    console.log('Note: sqlite_sequence reset failed (normal if no order_items existed)');
+                }
+                
+                res.json({ success: true, message: 'Toutes les commandes ont été supprimées' });
+            });
+        });
+    });
+});
 process.on('SIGINT', () => {
     console.log('\nFermeture de la base de données...');
     db.close((err) => {

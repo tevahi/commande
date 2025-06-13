@@ -64,6 +64,121 @@
             padding: 40px;
         }
         
+        .system-section {
+            background: #e8f5e8;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 5px solid #28a745;
+        }
+        
+        .system-section h2 {
+            margin-bottom: 20px;
+            color: #155724;
+        }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            width: 60px;
+            height: 34px;
+            display: inline-block;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #28a745;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .toggle-label {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .status-indicator {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        
+        .status-enabled {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .danger-section {
+            background: #f8d7da;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 5px solid #dc3545;
+        }
+        
+        .danger-section h2 {
+            margin-bottom: 20px;
+            color: #721c24;
+        }
+        
+        .reset-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        
+        .reset-btn:hover {
+            background: #c82333;
+        }
+        
+        .reset-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
         .form-section {
             background: #f8f9fa;
             padding: 30px;
@@ -183,6 +298,49 @@
         <div class="content">
             <div id="message"></div>
             
+            <div class="system-section">
+                <h2>⚙️ Paramètres Système</h2>
+                <div class="toggle-container">
+                    <span class="toggle-label">Activation des commandes :</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="ordersToggle" onchange="toggleOrders()">
+                        <span class="slider"></span>
+                    </label>
+                    <span id="orderStatus" class="status-indicator">Chargement...</span>
+                </div>
+                <p style="color: #666; font-size: 0.9em; margin-top: 10px;">
+                    Désactiver empêche les clients de passer de nouvelles commandes
+                </p>
+                
+                <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #ddd;">
+                    <div class="form-group">
+                        <label for="menuLink">Lien vers le menu complet :</label>
+                        <div style="display: flex; gap: 10px; align-items: end;">
+                            <input type="url" id="menuLink" placeholder="https://example.com/menu" style="flex: 1;">
+                            <button type="button" class="add-btn" onclick="updateMenuLink()" style="white-space: nowrap;">
+                                Mettre à jour
+                            </button>
+                        </div>
+                        <p style="color: #666; font-size: 0.9em; margin-top: 5px;">
+                            Ce lien apparaît dans le sous-titre de la page de commande
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="danger-section">
+                <h2>⚠️ Zone de Danger</h2>
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 600; color: #721c24;">Réinitialiser toutes les commandes :</label>
+                    <p style="color: #666; font-size: 0.9em; margin: 8px 0;">
+                        ⚠️ <strong>ATTENTION :</strong> Cette action supprimera définitivement toutes les commandes et ne peut pas être annulée.
+                    </p>
+                    <button type="button" class="reset-btn" onclick="confirmResetOrders()">
+                        🗑️ Supprimer toutes les commandes
+                    </button>
+                </div>
+            </div>
+            
             <div class="form-section">
                 <h2>Ajouter un nouveau produit</h2>
                 <form id="productForm">
@@ -224,8 +382,108 @@
 
     <script>
         let products = [];
+        let ordersEnabled = true;
         
-        // Charger les produits
+        // Charger le statut des commandes
+        async function loadOrdersStatus() {
+            try {
+                const response = await fetch('/api/system-settings');
+                const settings = await response.json();
+                ordersEnabled = settings.orders_enabled;
+                
+                document.getElementById('ordersToggle').checked = ordersEnabled;
+                updateStatusIndicator();
+                
+                // Charger le lien du menu
+                if (settings.menu_link) {
+                    document.getElementById('menuLink').value = settings.menu_link;
+                }
+            } catch (error) {
+                showMessage('Erreur lors du chargement du statut des commandes', 'error');
+            }
+        }
+        
+        function updateStatusIndicator() {
+            const statusElement = document.getElementById('orderStatus');
+            if (ordersEnabled) {
+                statusElement.textContent = '✅ Activées';
+                statusElement.className = 'status-indicator status-enabled';
+            } else {
+                statusElement.textContent = '❌ Désactivées';
+                statusElement.className = 'status-indicator status-disabled';
+            }
+        }
+        
+        // Basculer l'état des commandes
+        async function toggleOrders() {
+            const checkbox = document.getElementById('ordersToggle');
+            const newStatus = checkbox.checked;
+            
+            try {
+                const response = await fetch('/api/system-settings/orders-enabled', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ enabled: newStatus })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    ordersEnabled = result.orders_enabled;
+                    updateStatusIndicator();
+                    showMessage(`Commandes ${ordersEnabled ? 'activées' : 'désactivées'} avec succès !`);
+                } else {
+                    // Rétablir l'état précédent en cas d'erreur
+                    checkbox.checked = ordersEnabled;
+                    showMessage(result.error || 'Erreur lors de la modification', 'error');
+                }
+            } catch (error) {
+                // Rétablir l'état précédent en cas d'erreur
+                checkbox.checked = ordersEnabled;
+                showMessage('Erreur de connexion', 'error');
+            }
+        }
+        
+        // Mettre à jour le lien du menu
+        async function updateMenuLink() {
+            const menuLinkInput = document.getElementById('menuLink');
+            const menuLink = menuLinkInput.value.trim();
+            
+            if (!menuLink) {
+                showMessage('Veuillez entrer un lien valide', 'error');
+                return;
+            }
+            
+            // Validation simple de l'URL
+            try {
+                new URL(menuLink);
+            } catch (e) {
+                showMessage('Veuillez entrer une URL valide (ex: https://example.com)', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/system-settings/menu-link', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ menu_link: menuLink })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showMessage('Lien du menu mis à jour avec succès !');
+                } else {
+                    showMessage(result.error || 'Erreur lors de la mise à jour', 'error');
+                }
+            } catch (error) {
+                showMessage('Erreur de connexion', 'error');
+            }
+        }
         async function loadProducts() {
             try {
                 const response = await fetch('/api/products');
@@ -271,7 +529,56 @@
             }, 5000);
         }
         
-        // Ajouter un produit
+        // Réinitialiser toutes les commandes
+        function confirmResetOrders() {
+            const confirmed = confirm(
+                "⚠️ ATTENTION ⚠️\n\n" +
+                "Vous êtes sur le point de supprimer TOUTES les commandes de façon définitive.\n\n" +
+                "Cette action :\n" +
+                "• Supprimera toutes les commandes existantes\n" +
+                "• Supprimera tous les articles de commandes\n" +
+                "• Remettra les compteurs à zéro\n" +
+                "• NE PEUT PAS être annulée\n\n" +
+                "Êtes-vous absolument certain de vouloir continuer ?"
+            );
+            
+            if (confirmed) {
+                const doubleConfirm = confirm(
+                    "🚨 DERNIÈRE CONFIRMATION 🚨\n\n" +
+                    "Ceci est votre dernière chance d'annuler.\n\n" +
+                    "Confirmer la suppression de TOUTES les commandes ?"
+                );
+                
+                if (doubleConfirm) {
+                    resetAllOrders();
+                }
+            }
+        }
+        
+        async function resetAllOrders() {
+            const resetBtn = document.querySelector('.reset-btn');
+            resetBtn.disabled = true;
+            resetBtn.textContent = '🔄 Suppression en cours...';
+            
+            try {
+                const response = await fetch('/api/orders/reset', {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showMessage('✅ Toutes les commandes ont été supprimées avec succès !');
+                } else {
+                    showMessage(result.error || 'Erreur lors de la suppression', 'error');
+                }
+            } catch (error) {
+                showMessage('Erreur de connexion lors de la suppression', 'error');
+            } finally {
+                resetBtn.disabled = false;
+                resetBtn.textContent = '🗑️ Supprimer toutes les commandes';
+            }
+        }
         document.getElementById('productForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -338,6 +645,7 @@
         
         // Initialiser la page
         loadProducts();
+        loadOrdersStatus();
     </script>
 </body>
 </html>

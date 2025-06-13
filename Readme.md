@@ -12,15 +12,19 @@ Une application web complète pour la gestion de commandes avec interface utilis
 
 ### Administration (Protégée par authentification)
 - **Gestion des produits** : Ajouter, modifier et supprimer des produits
+- **Activation/Désactivation des commandes** : Contrôle global du système de commandes
+- **Gestion du lien menu** : Modifier le lien vers le menu complet depuis l'interface admin
+- **Réinitialisation des commandes** : Supprimer toutes les commandes avec double confirmation
 - **Tableau de bord** : Statistiques en temps réel
-- **Récapitulatif des commandes** : Vue d'ensemble de toutes les commandes
+- **Récapitulatif des commandes** : Vue d'ensemble de toutes les commandes avec gestion des paiements
 - **Interface responsive** : Optimisée pour tous les écrans
 
 ### Base de Données
 - **SQLite** : Base de données légère stockée dans `/data`
-- **Tables** : Products, Orders, Order_Items
+- **Tables** : Products, Orders, Order_Items, System_Settings
 - **Relations** : Gestion des clés étrangères
 - **Initialisation automatique** : Création des tables et données de test
+- **Paramètres système** : Configuration pour activer/désactiver les commandes
 
 ## 📋 Prérequis
 
@@ -98,8 +102,8 @@ order-management-app/
 **orders**
 - `id` : Numéro de commande
 - `customer_name` : Nom du client
-- `customer_email` : Email (optionnel)
 - `total_amount` : Montant total
+- `is_paid` : Statut de paiement (0=non payé, 1=payé)
 - `created_at` : Date de commande
 
 **order_items**
@@ -107,7 +111,17 @@ order-management-app/
 - `order_id` : Référence à la commande
 - `product_id` : Référence au produit
 - `quantity` : Quantité commandée
+**order_items**
+- `id` : Identifiant de l'article
+- `order_id` : Référence à la commande
+- `product_id` : Référence au produit
+- `quantity` : Quantité commandée
 - `unit_price` : Prix unitaire en XPF au moment de la commande
+
+**system_settings**
+- `key` : Clé du paramètre (ex: 'orders_enabled', 'menu_link')
+- `value` : Valeur du paramètre ('true'/'false' pour orders_enabled, URL pour menu_link)
+- `updated_at` : Date de dernière modification
 
 ## 🔒 Sécurité
 
@@ -121,7 +135,8 @@ order-management-app/
 ### Publics
 - `GET /` - Page de commande
 - `GET /api/products` - Liste des produits
-- `POST /api/orders` - Créer une commande
+- `GET /api/system-settings` - Statut des commandes et lien menu
+- `POST /api/orders` - Créer une commande (si activé)
 
 ### Protégés (Authentification requise)
 - `POST /api/login` - Connexion admin
@@ -129,7 +144,11 @@ order-management-app/
 - `POST /api/products` - Ajouter un produit
 - `DELETE /api/products/:id` - Supprimer un produit
 - `GET /api/orders` - Liste des commandes
+- `PUT /api/orders/:id/payment` - Modifier le statut de paiement d'une commande
+- `DELETE /api/orders/reset` - Supprimer toutes les commandes (réinitialisation)
 - `GET /api/product-stats` - Statistiques des produits vendus
+- `PUT /api/system-settings/orders-enabled` - Activer/désactiver les commandes
+- `PUT /api/system-settings/menu-link` - Modifier le lien du menu
 
 ## 🚀 Optimisations pour VM 1Go RAM
 
@@ -169,8 +188,21 @@ docker stats
 
 ```javascript
 const defaultProducts = [
-    ['Votre Produit', 1599], // Prix en francs pacifique
-    ['Autre Produit', 950]
+    ['Chicken katsu bowl', 950],
+    ['Chiken katsu noodles bowl', 950],
+    ['Poke bowl (Thon frais)', 1050],
+    ['Poke wasabi bowl', 1100],
+    ['Duo poke bowl', 1250],
+    ['Mini poisson cru chinois', 700],
+    ['Mini poisson cru lait de coco', 700],
+    ['Mini riz', 200],
+    ['Indian butter chiken + riz', 950],
+    ['Katsu burger + frites à la japonaise', 1000],
+    ['Katsu curry burger + frites', 1100],
+    ['Ninja katsu burger + frites à la japonaise', 1050],
+    ['Fish burger (thon) + frites à la japonaise', 1050],
+    ['Samurai katsu burger + frites à la japonaise', 1050],
+    ['Bento du jour', 1450]
 ];
 ```
 

@@ -177,8 +177,46 @@
             font-weight: 600;
         }
         
+        .orders-table tr.paid {
+            background: #d4edda !important;
+            border-left: 4px solid #28a745;
+        }
+        
+        .orders-table tr.unpaid {
+            background: #f8d7da !important;
+            border-left: 4px solid #dc3545;
+        }
+        
         .orders-table tr:hover {
-            background: #f8f9fa;
+            opacity: 0.9;
+        }
+        
+        .payment-checkbox {
+            transform: scale(1.2);
+            cursor: pointer;
+        }
+        
+        .payment-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .status-paid {
+            background: #28a745;
+            color: white;
+        }
+        
+        .status-unpaid {
+            background: #dc3545;
+            color: white;
         }
         
         .order-items {
@@ -333,6 +371,9 @@
                 new Date(order.created_at).toDateString() === today
             ).length;
             
+            // Calculer les commandes payées
+            const paidOrders = orders.filter(order => order.is_paid === 1).length;
+            
             statsSection.innerHTML = `
                 <div class="stat-card">
                     <div class="stat-number">${totalOrders}</div>
@@ -340,15 +381,15 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-number">${Math.round(totalRevenue)} XPF</div>
-                    <div class="stat-label">Total à payer</div>
+                    <div class="stat-label">Montant total des commandes</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-number">${Math.round(avgOrderValue)} XPF</div>
-                    <div class="stat-label">commande moyenne</div>
+                    <div class="stat-label">Panier moyen</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number">${todayOrders}</div>
-                    <div class="stat-label">Commandes aujourd'hui</div>
+                    <div class="stat-number">${paidOrders}/${totalOrders}</div>
+                    <div class="stat-label">Commandes payées</div>
                 </div>
             `;
         }
@@ -369,28 +410,67 @@
                     <tr>
                         <th>N° Commande</th>
                         <th>Client</th>
-                        <th>Email</th>
                         <th>Articles</th>
                         <th>Montant</th>
+                        <th>Statut Paiement</th>
                         <th>Date</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${orders.map(order => `
-                        <tr>
-                            <td>#${order.id}</td>
-                            <td>${order.customer_name}</td>
-                            <td>${order.customer_email || '-'}</td>
-                            <td class="order-items">${order.items || 'Aucun article'}</td>
-                            <td class="amount">${Math.round(order.total_amount)} XPF</td>
-                            <td class="date">${formatDate(order.created_at)}</td>
-                        </tr>
-                    `).join('')}
+                    ${orders.map(order => {
+                        const isPaid = order.is_paid === 1;
+                        const rowClass = isPaid ? 'paid' : 'unpaid';
+                        const statusBadge = isPaid ? 
+                            '<span class="status-badge status-paid">✓ Payé</span>' : 
+                            '<span class="status-badge status-unpaid">✗ Non payé</span>';
+                            
+                        return `
+                            <tr class="${rowClass}">
+                                <td>#${order.id}</td>
+                                <td>${order.customer_name}</td>
+                                <td class="order-items">${order.items || 'Aucun article'}</td>
+                                <td class="amount">${Math.round(order.total_amount)} XPF</td>
+                                <td class="payment-status">
+                                    <input type="checkbox" class="payment-checkbox" 
+                                           ${isPaid ? 'checked' : ''} 
+                                           onchange="togglePayment(${order.id}, this.checked)">
+                                    ${statusBadge}
+                                </td>
+                                <td class="date">${formatDate(order.created_at)}</td>
+                            </tr>
+                        `;
+                    }).join('')}
                 </tbody>
             `;
             
             container.innerHTML = '';
             container.appendChild(table);
+        }
+        
+        // Basculer le statut de paiement
+        async function togglePayment(orderId, isPaid) {
+            try {
+                const response = await fetch(`/api/orders/${orderId}/payment`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ is_paid: isPaid })
+                });
+                
+                if (response.ok) {
+                    // Recharger les commandes pour mettre à jour l'affichage
+                    loadOrders();
+                } else {
+                    // En cas d'erreur, remettre la checkbox dans son état précédent
+                    event.target.checked = !isPaid;
+                    alert('Erreur lors de la mise à jour du statut de paiement');
+                }
+            } catch (error) {
+                // En cas d'erreur, remettre la checkbox dans son état précédent
+                event.target.checked = !isPaid;
+                alert('Erreur de connexion');
+            }
         }
         
         function formatDate(dateString) {

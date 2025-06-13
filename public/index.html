@@ -172,8 +172,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🍕 Commande Pitate du jeudi</h1>
-            <a target="_blank" rel="noopener noreferrer" href="https://www.facebook.com/photo?fbid=1028962089396578&set=a.495266796099446">Le menu est ici</a>
+            <h1>🍽️ Commande Pitate du jeudi</h1>
+            <p>Passez votre commande en ligne - <a href="#" id="menuLink" target="_blank" style="color: white; text-decoration: underline;">Voir le menu complet</a></p>
         </div>
         
         <div class="form-container">
@@ -181,14 +181,9 @@
             
             <form id="orderForm">
                 <div class="form-group">
-                    <label for="customerName">Prénom *</label>
+                    <label for="customerName">Nom du client *</label>
                     <input type="text" id="customerName" name="customerName" required>
                 </div>
-                
-                <!-- <div class="form-group">
-                    <label for="customerEmail">Email (optionnel)</label>
-                    <input type="email" id="customerEmail" name="customerEmail">
-                </div> -->
                 
                 <div class="form-group">
                     <label>Produits à commander</label>
@@ -212,6 +207,50 @@
     <script>
         let products = [];
         let productCounter = 0;
+        let ordersEnabled = true;
+        
+        // Vérifier si les commandes sont activées
+        async function checkOrdersStatus() {
+            try {
+                const response = await fetch('/api/system-settings');
+                const settings = await response.json();
+                ordersEnabled = settings.orders_enabled;
+                
+                // Mettre à jour le lien du menu
+                if (settings.menu_link) {
+                    const menuLink = document.getElementById('menuLink');
+                    menuLink.href = settings.menu_link;
+                }
+                
+                updateOrderButton();
+            } catch (error) {
+                console.error('Erreur lors de la vérification du statut des commandes:', error);
+            }
+        }
+        
+        function updateOrderButton() {
+            const submitBtn = document.querySelector('.submit-btn');
+            const form = document.getElementById('orderForm');
+            
+            if (!ordersEnabled) {
+                submitBtn.textContent = 'Commandes temporairement désactivées';
+                submitBtn.disabled = true;
+                submitBtn.style.opacity = '0.5';
+                submitBtn.style.cursor = 'not-allowed';
+                form.style.pointerEvents = 'none';
+                form.style.opacity = '0.7';
+                
+                // Afficher un message d'information
+                showMessage('Les commandes sont actuellement désactivées par l\'administrateur', 'error');
+            } else {
+                submitBtn.textContent = 'Passer la commande';
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+                submitBtn.style.cursor = 'pointer';
+                form.style.pointerEvents = 'auto';
+                form.style.opacity = '1';
+            }
+        }
         
         // Charger les produits disponibles
         async function loadProducts() {
@@ -232,7 +271,7 @@
             productItem.className = 'product-item';
             productItem.id = `product-item-${itemId}`;
             
-            let productOptions = '<option value="">Sélectionner un plat</option>';
+            let productOptions = '<option value="">Sélectionner un produit</option>';
             products.forEach(product => {
                 productOptions += `<option value="${product.id}">${product.name} - ${product.price} XPF</option>`;
             });
@@ -269,9 +308,13 @@
         document.getElementById('orderForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            if (!ordersEnabled) {
+                showMessage('Les commandes sont actuellement désactivées', 'error');
+                return;
+            }
+            
             const formData = new FormData(e.target);
             const customerName = formData.get('customerName');
-            const customerEmail = formData.get('customerEmail');
             
             // Collecter les articles
             const items = [];
@@ -290,7 +333,7 @@
             });
             
             if (items.length === 0) {
-                showMessage('Veuillez sélectionner au moins un plat', 'error');
+                showMessage('Veuillez sélectionner au moins un produit', 'error');
                 return;
             }
             
@@ -302,7 +345,6 @@
                     },
                     body: JSON.stringify({
                         customerName,
-                        customerEmail,
                         items
                     })
                 });
@@ -324,6 +366,10 @@
         
         // Initialiser l'application
         loadProducts();
+        checkOrdersStatus();
+        
+        // Vérifier le statut des commandes toutes les 30 secondes
+        setInterval(checkOrdersStatus, 30000);
     </script>
 </body>
 </html>
